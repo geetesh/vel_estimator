@@ -116,7 +116,7 @@ int main(int argc, char** argv)
     //	cv::initModule_nonfree();//THIS LINE IS IMPORTANT for using surf and sift features of opencv
     ros::NodeHandle nh("~");
     vel_estimator d(nh);
-    message_filters::Subscriber<sensor_msgs::Image> image_sub(nh, "/camera1/image_raw", 1);
+//    message_filters::Subscriber<sensor_msgs::Image> image_sub(nh, "/camera1/image_raw", 1);
     message_filters::Subscriber<opencv_apps::FlowArrayStamped> flow_sub(nh, "/flownode/flows", 1);
     message_filters::Subscriber<sensor_msgs::Imu> imu_sub(nh, "/mavros/imu/data", 1);
     message_filters::Subscriber<sensor_msgs::LaserScan> laser_sub(nh, "/sf30/range", 1);
