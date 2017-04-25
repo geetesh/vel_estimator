@@ -1,0 +1,13 @@
+<!-- -->
+<launch>
+    <include file="$(find mavros)/launch/px4.launch"/>
+    <include file="$(find sf30_node)/launch/sf30.launch"/>
+    <include file="$(find ximea_camera)/launch/camera.launch"/>
+
+    <node pkg="opencv_apps" type="simple_flow" name="flownode">
+	<remap from="image" to="/camera1/image_raw"/>
+        <param name="scale" type="int" value="24" />
+        <param name="debug_view" type="bool" value="true" />
+    </node>
+    <node pkg="vel_estimator" type="vel_estimator" name="vel_estimator"/>
+</launch>
