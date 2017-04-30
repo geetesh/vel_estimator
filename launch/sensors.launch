@@ -3,10 +3,11 @@
     <include file="$(find mavros)/launch/px4.launch"/>
     <include file="$(find sf30_node)/launch/sf30.launch"/>
     <include file="$(find ximea_camera)/launch/camera.launch"/>
+    <node name="image_proc" pkg="image_proc" type="image_proc" ns="camera1"/>
 
     <node pkg="opencv_apps" type="simple_flow" name="flownode">
-	<remap from="image" to="/camera1/image_raw"/>
-        <param name="scale" type="int" value="24" />
+	<remap from="image" to="/camera1/image_rect"/>
+        <param name="scale" type="int" value="14" />
         <param name="debug_view" type="bool" value="true" />
     </node>
     <node pkg="vel_estimator" type="vel_estimator" name="vel_estimator"/>

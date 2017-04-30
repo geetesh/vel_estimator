@@ -78,17 +78,26 @@ void vel_estimator::callback(const opencv_apps::FlowArrayStamped::ConstPtr &msg_
     double dt = (t - prev_time).toSec();
     prev_time = t;
 
-    Eigen::MatrixXd vel_vec(msg_flow->flow.size(),2);
-//    ROS_INFO_THROTTLE(2,"FLOW SIZE: %d",msg_flow->flow.size());
+    if(msg_flow->flow.size() < 3)
+        return;
 
+    Eigen::MatrixXd vel_vec(msg_flow->flow.size(),2);
+//    ROS_INFO_THROTTLE(2,"FLOW SIZE: %d time: %f",msg_flow->flow.size(), dt);
+
+    double Z = msg_laser->ranges[0];
+    double wx = -msg_imu->angular_velocity.y;
+    double wy = -msg_imu->angular_velocity.x;
+    double wz = -msg_imu->angular_velocity.z;
     for(size_t i = 0; i < msg_flow->flow.size() ; i++)
     {
-        vel_vec(i,0) = msg_flow->flow[i].velocity.x;
-        vel_vec(i,1) = msg_flow->flow[i].velocity.y;
+        vel_vec(i,0) = (msg_flow->flow[i].velocity.x/dt - wy*fx_ - wz*msg_flow->flow[i].point.y)*Z/fx_;
+        vel_vec(i,1) = (msg_flow->flow[i].velocity.y/dt - wx*fx_ + wz*msg_flow->flow[i].point.x)*Z/fx_;
+//        vel_vec(i,0) = msg_flow->flow[i].velocity.x;
+//        vel_vec(i,1) = msg_flow->flow[i].velocity.y;
     }
     Eigen::MatrixXd mean = vel_vec.colwise().mean();
-    double vx = msg_laser->ranges[0]/fx_*mean(0) / dt;
-    double vy = msg_laser->ranges[0]/fy_*mean(1) / dt;
+    double vx = msg_laser->ranges[0]/fx_*mean(0);
+    double vy = msg_laser->ranges[0]/fy_*mean(1);
 
     geometry_msgs::TwistStamped twist;
     twist.header = msg_flow->header;
@@ -96,9 +105,11 @@ void vel_estimator::callback(const opencv_apps::FlowArrayStamped::ConstPtr &msg_
     twist.twist.linear.y = vy;
     twist.twist.linear.z = sqrt(vx*vx+vy*vy);
 //    std::cout<<std::endl<<twist.twist.linear.z;
-    if(std::isfinite(twist.twist.linear.z))
+    if(std::isfinite(twist.twist.linear.z) && (dt >= 1/100.0))
     {
         twist_pub_.publish(twist);
+//        if(twist.twist.linear.z > 1.0)
+//            ROS_INFO("xy %f %f time: %f",mean(0),mean(1),dt);
     }
     return;
 }
