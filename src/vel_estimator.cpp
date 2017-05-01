@@ -28,6 +28,9 @@
 #include <opencv_apps/FlowArrayStamped.h>
 #include <Eigen/Core>
 #include <Eigen/Dense>
+#include <deque>
+//#include <algorithm>
+#include <numeric>
 
 class vel_estimator{
 public:
@@ -45,6 +48,18 @@ public:
     double fx_,fy_,cx_,cy_;
     unsigned int width,height;
     ros::Time prev_time;
+
+    int N =10;
+
+    std::deque<double> speed_samples_;
+    std::deque<double> vx_samples_;
+    std::deque<double> vy_samples_;
+    double updated_speed=0;
+    double alpha =0.95;
+
+    double vel_sigma=0.5;
+
+
 };
 
 void vel_estimator::getCamInfo(const sensor_msgs::CameraInfo::ConstPtr& msg_info)
@@ -85,31 +100,107 @@ void vel_estimator::callback(const opencv_apps::FlowArrayStamped::ConstPtr &msg_
 //    ROS_INFO_THROTTLE(2,"FLOW SIZE: %d time: %f",msg_flow->flow.size(), dt);
 
     double Z = msg_laser->ranges[0];
+//    Z = 1.0;
+
+    bool debug = 0;
+
     double wx = -msg_imu->angular_velocity.y;
     double wy = -msg_imu->angular_velocity.x;
-    double wz = -msg_imu->angular_velocity.z;
+    double wz = -msg_imu->angular_velocity.z * 0;
     for(size_t i = 0; i < msg_flow->flow.size() ; i++)
     {
-        vel_vec(i,0) = (msg_flow->flow[i].velocity.x/dt - wy*fx_ - wz*msg_flow->flow[i].point.y)*Z/fx_;
-        vel_vec(i,1) = (msg_flow->flow[i].velocity.y/dt - wx*fx_ + wz*msg_flow->flow[i].point.x)*Z/fx_;
-//        vel_vec(i,0) = msg_flow->flow[i].velocity.x;
-//        vel_vec(i,1) = msg_flow->flow[i].velocity.y;
+        //FOR LK
+        if(0)
+        {
+            vel_vec(i,0) = (msg_flow->flow[i].velocity.x/dt - wy*fy_ - wz*(msg_flow->flow[i].point.y-cy_))*Z/fx_;
+            vel_vec(i,1) = (msg_flow->flow[i].velocity.y/dt - wx*fx_ + wz*(msg_flow->flow[i].point.x-cx_))*Z/fy_;
+        }
+        else
+        {
+        //FOR SIMPLE_FLOW
+            vel_vec(i,0) = (msg_flow->flow[i].velocity.x/dt + wy*fy_ - wz*(msg_flow->flow[i].point.y-cy_))*Z/fx_;
+            vel_vec(i,1) = (msg_flow->flow[i].velocity.y/dt + wx*fx_ + wz*(msg_flow->flow[i].point.x-cx_))*Z/fy_;
+        }
+        if(debug)
+        {
+            vel_vec(i,0) = msg_flow->flow[i].velocity.x/dt;
+            vel_vec(i,1) = msg_flow->flow[i].velocity.y/dt;
+        }
     }
     Eigen::MatrixXd mean = vel_vec.colwise().mean();
-    double vx = msg_laser->ranges[0]/fx_*mean(0);
-    double vy = msg_laser->ranges[0]/fy_*mean(1);
+    double vx = mean(0);
+    double vy = mean(1);
 
+#define USE_FILTER
+#ifdef USE_FILTER
+    double current_speed = sqrt(vx*vx+vy*vy);
+
+        if (speed_samples_.size() == N)
+        {
+            if ((fabs(current_speed-updated_speed) < vel_sigma) || (updated_speed == 0.0))
+            {
+                speed_samples_.pop_front();
+                vx_samples_.pop_front();
+                vy_samples_.pop_front();
+
+                vx_samples_.push_back(vx);
+                vy_samples_.push_back(vy);
+                speed_samples_.push_back(current_speed);
+            }
+            else
+            {
+                std::deque<double> vx_temp_,vy_temp_;
+                vx_temp_.resize(N);
+                vy_temp_.resize(N);
+                std::transform(vx_samples_.begin(), vx_samples_.end(), vx_samples_.begin(),std::bind1st(std::multiplies<double>(),alpha)); //decay
+                std::transform(vy_samples_.begin(), vy_samples_.end(), vy_samples_.begin(),std::bind1st(std::multiplies<double>(),alpha));
+                std::transform( vx_samples_.begin(), vx_samples_.end(), vx_samples_.begin(), vx_temp_.begin(), std::multiplies<double>() ); //
+                std::transform( vy_samples_.begin(), vy_samples_.end(), vy_samples_.begin(), vy_temp_.begin(), std::multiplies<double>() );
+                std::transform( vx_temp_.begin(), vx_temp_.end(), vy_temp_.begin(), speed_samples_.begin(), std::plus<double>());
+                std::transform( speed_samples_.begin(), speed_samples_.end(), speed_samples_.begin(), static_cast<double (*)(double)>(std::sqrt));
+            }
+            double total_ = std::accumulate(speed_samples_.begin(), speed_samples_.end(), 0.0);
+            updated_speed = total_/N;
+            total_ = std::accumulate(vx_samples_.begin(), vx_samples_.end(), 0.0);
+            vx = total_/N;
+            total_ = std::accumulate(vy_samples_.begin(), vy_samples_.end(), 0.0);
+            vy = total_/N;
+
+
+        }
+        else
+        {
+            speed_samples_.push_back(current_speed);
+            vx_samples_.push_back(vx);
+            vy_samples_.push_back(vy);
+            vx = 0.0;
+            vy = 0.0;
+        }
+#endif
     geometry_msgs::TwistStamped twist;
     twist.header = msg_flow->header;
     twist.twist.linear.x = vx;
     twist.twist.linear.y = vy;
     twist.twist.linear.z = sqrt(vx*vx+vy*vy);
 //    std::cout<<std::endl<<twist.twist.linear.z;
-    if(std::isfinite(twist.twist.linear.z) && (dt >= 1/100.0))
+
+    if(debug)//debug
+    {
+        twist.twist.linear.x = vx;
+        twist.twist.linear.y = vy;
+        twist.twist.angular.x = wx*fx_;
+        twist.twist.angular.y = wy*fy_;
+    }
+
+    if(std::isfinite(twist.twist.linear.z));// && (dt >= 1/100.0))
     {
         twist_pub_.publish(twist);
 //        if(twist.twist.linear.z > 1.0)
 //            ROS_INFO("xy %f %f time: %f",mean(0),mean(1),dt);
+//        ROS_INFO("xyz %f %f %f",wx,wy,wz);
+        static float dist;// = 0;
+        dist += twist.twist.linear.z *dt;
+        ROS_INFO("Dist: %f",dist);
     }
     return;
 }
@@ -117,6 +208,9 @@ void vel_estimator::callback(const opencv_apps::FlowArrayStamped::ConstPtr &msg_
 vel_estimator::vel_estimator(ros::NodeHandle& nh){
     twist_pub_ = nh.advertise<geometry_msgs::TwistStamped>("twist", 10);
     cam_info_sub_ = nh.subscribe("/camera1/camera_info", 1,&vel_estimator::getCamInfo,this);
+    nh.getParam("vel_sigma",vel_sigma);
+    nh.getParam("buffer",N);
+    nh.getParam("alpha",alpha);
     ROS_INFO("into constr");
     got_cam_info = false;
 }
