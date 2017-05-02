@@ -110,6 +110,7 @@ set(CMAKE_BUILD_TYPE Release)
 ## Your package locations should be listed before other locations
 # include_directories(include)
 include_directories(
+  src
   ${catkin_INCLUDE_DIRS}
   ${PCL_INCLUDE_DIRS}
 )
@@ -120,7 +121,7 @@ include_directories(
 # )
 
 ## Declare a cpp executable
-add_executable (vel_estimator src/vel_estimator.cpp)
+add_executable (vel_estimator src/vel_estimator.cpp src/flow_opencv.cpp src/optical_flow.cpp src/trackFeatures.cpp)
 target_link_libraries(vel_estimator ${OpenCV_LIBS} ${catkin_LIBRARIES}
 )
 
